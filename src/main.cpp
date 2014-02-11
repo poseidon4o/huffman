@@ -1,6 +1,7 @@
 ﻿#include <string>
 #include <cstdlib>
 #include <algorithm>
+#include <iostream>
 
 #define CHAR_BUF 256
 
@@ -19,6 +20,43 @@ struct huffman_node {
     huffman_node(char c): val(c), is_leaf(true), left(NULL), right(NULL) {}
     huffman_node(huffman_node * l, huffman_node * r): left(l), right(r), weight(l->weight + r->weight), is_leaf(false) {}
 };
+
+class bitset {
+    typedef unsigned char b_type;
+    b_type * _data;
+    size_t len, bits;
+public:
+    bitset(size_t sz) {
+        _data = new b_type[len = (bits = sz) / 8 + 1];
+        memset(_data, 0, len);
+    }
+    void set(size_t sz) { if( sz <= bits) _data[sz/8] |= (0x1 << (sz % 8)); }
+    void clear(size_t sz) { if( sz <= bits) _data[sz/8] &= ~(0x1 << (sz % 8)); }
+    void change(size_t sz, b_type b) { if(b) set(sz); else clear(sz); }
+    b_type operator[](int idx) const { if( idx <= bits ) return _data[idx/8] >> (idx % 8) & 0x1; }
+    const b_type * data() { return _data; }
+    size_t length() const { return len; }
+    size_t bit_count() const { return bits; }
+    bitset & operator+=(const bitset & bs) {
+        if( &bs == this ) return *this;
+        bitset tmp(bits + bs.bits);
+        
+        memcpy(tmp._data, _data, len);
+        for(size_t r = 0, c = bits; r < bs.bits; ++r) tmp.change(c++, bs[r]);
+
+        delete[] _data;
+        _data = new b_type[tmp.len];
+        memcpy(_data, tmp._data, tmp.len);
+        len = tmp.len;
+        bits = tmp.bits;
+    }
+};
+
+std::ostream & operator<<(std::ostream & os, const bitset & bs) {
+    for(size_t c = 0; c < bs.bit_count(); ++c)
+        os << (bs[c] ? 1 : 0);
+    return os;
+}
 
 void huff_sort(huffman_node ** arr, size_t sz) {
     qsort(arr, sz, sizeof(huffman_node *), [](const void * l, const void *r) -> int {
@@ -40,6 +78,20 @@ void build_tree(huffman_node & root, huffman_node ** arr, size_t sz)
 }
 
 int main() {
+    bitset b(10), r(6);
+    b.set(7);
+    r.set(5);
+    std::cout << b << std::endl << r << std::endl;
+    b += r;
+    std::cout << b << "\n";
+    b.clear(7);
+    b.clear(15);
+    std::cout << b;
+    
+    std::cin.get();
+    return 1;
+
+
     char string[] = "";
     const size_t orig_len = sizeof(string);
     
