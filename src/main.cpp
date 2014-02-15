@@ -1,4 +1,5 @@
-﻿#include <string>
+﻿#define _CRT_SECURE_NO_WARNINGS
+#include <string>
 #include <cstdlib>
 #include <algorithm>
 #include <iostream>
@@ -107,7 +108,7 @@ void huff_sort(huffman_node ** arr, size_t sz)
     });
 }
 
-void build_tree(huffman_node & root, huffman_node ** arr, size_t sz)
+void build_tree(huffman_node ** root, huffman_node ** arr, size_t sz)
 {
     huffman_node * parent = NULL;
     while(sz > 1) {
@@ -116,8 +117,7 @@ void build_tree(huffman_node & root, huffman_node ** arr, size_t sz)
         arr[1] = arr[--sz];
         arr[0] = parent;
     }
-    root = parent ? *parent : sz ? *arr[0] : root;
-    delete parent;
+    *root = arr[0];
 }
 
 void huffman_array_shrink(huffman_node ** array, size_t len, size_t & new_len)
@@ -128,6 +128,7 @@ void huffman_array_shrink(huffman_node ** array, size_t len, size_t & new_len)
 
 bool huffman_tree_has(const huffman_node * tree, char data)
 {
+    if( !tree ) return false;
     if( tree->is_leaf )  return tree->val == data;
     else return huffman_tree_has(tree->left, data) || huffman_tree_has(tree->right, data);
 }
@@ -145,13 +146,13 @@ void huffman_code(const huffman_node * tree, char data, bitset & bs, size_t leve
     }
 }
 
-void huffman_compress(const huffman_node & tree, const char * data, const size_t len, huffman_encoded & result)
+void huffman_compress(const huffman_node * tree, const char * data, const size_t len, huffman_encoded & result)
 {
     using namespace std;
     bitset base(0);
     for(size_t c = 0; c < len; ++c) {
         bitset tmp(CHAR_BUF);
-        huffman_code(&tree, data[c], tmp);
+        huffman_code(tree, data[c], tmp);
         base += tmp;
     }
     result.data = new unsigned char[base.length()];
@@ -160,11 +161,11 @@ void huffman_compress(const huffman_node & tree, const char * data, const size_t
     result.data_bits = base.bit_count();
 }
 
-void huffman_decompress(const huffman_node & tree, const huffman_encoded & data, char ** uncompressed, size_t & uncompressed_len)
+void huffman_decompress(const huffman_node * tree, const huffman_encoded & data, char ** uncompressed, size_t & uncompressed_len)
 {
     bitset bs(0);
     bs.from_bytes(data.data, data.byte_len, data.data_bits);
-    const huffman_node * iter = &tree;
+    const huffman_node * iter = tree;
 
     uncompressed_len = 0;
     size_t res_len = data.byte_len;
@@ -184,44 +185,165 @@ void huffman_decompress(const huffman_node & tree, const huffman_encoded & data,
                 res_len *= 2;
             }
             (*uncompressed)[uncompressed_len++] = iter->val;
-            iter = &tree;
+            iter = tree;
         }
     }
     (*uncompressed)[uncompressed_len] = 0;
 }
 
-int main() {
-    char string[] = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat. Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat. Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis at vero eros et accumsan et iusto odio dignissim qui blandit praesent luptatum zzril delenit augue duis dolore te feugait nulla facilisi. Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming id quod mazim placerat facer possim assum. Typi non habent claritatem insitam; est usus legentis in iis qui facit eorum claritatem. Investigationes demonstraverunt lectores legere me lius quod ii legunt saepius. Claritas est etiam processus dynamicus, qui sequitur mutationem consuetudium lectorum. Mirum est notare quam littera gothica, quam nunc putamus parum claram, anteposuerit litterarum formas humanitatis per seacula quarta decima et quinta decima. Eodem modo typi, qui nunc nobis videntur parum clari, fiant sollemnes in futurum";
-    const size_t orig_len = strlen(string);
-    
+huffman_node * huffman_tree_from_text(const char * data, size_t len)
+{
     huffman_node * nodes[CHAR_BUF];
     memset(nodes, 0, CHAR_BUF * sizeof(huffman_node*));
 
-    for(size_t c = 0; c < orig_len; ++c) {
-        size_t idx = (unsigned char)string[c];
+    for(size_t c = 0; c < len; ++c) {
+        size_t idx = (unsigned char)data[c];
         if(!nodes[idx]) {
-            nodes[idx] = new huffman_node(string[c]);
+            nodes[idx] = new huffman_node(data[c]);
         }
         ++nodes[idx]->weight;
     }
 
-    size_t len = 0;
-    huffman_array_shrink(nodes, CHAR_BUF, len);
+    size_t new_len = 0;
+    huffman_array_shrink(nodes, CHAR_BUF, new_len);
 
-    huffman_node root;
-    build_tree(root, nodes, len);
+    huffman_node * root;
+    build_tree(&root, nodes, new_len);
+    
+    return root;
+}
+
+void huffman_free(huffman_node * tree)
+{
+    if( tree->is_leaf ) {
+        delete tree;
+        return;
+    }
+    
+    huffman_free(tree->left);
+    huffman_free(tree->right);
+}
+
+size_t write_tree_to_file(huffman_node * tree, FILE * file)
+{
+    if( tree->is_leaf ) {
+        fwrite(tree, 1, sizeof(huffman_node), file);
+        return 1;
+    } else {
+        return write_tree_to_file(tree->left, file) +  write_tree_to_file(tree->right, file);
+    }
+}
+
+bool compress_file(const char * source, const char * dest)
+{
+    FILE * inp = fopen(source, "r");
+    if( !inp ) return false;
+    fseek(inp, 0, SEEK_END);
+
+    const size_t len = ftell(inp);
+    fseek(inp, 0, SEEK_SET);
+
+    char * data = new char[len];
+    fread(data, 1, len, inp);
+    fclose(inp);
+
+    huffman_node * tree = huffman_tree_from_text(data, len);
+    
+    huffman_encoded comp;
+    huffman_compress(tree, data, len, comp);
+
+    FILE * out = fopen(dest, "wb");
+    if( !out ) {
+        delete[] comp.data;
+        huffman_free(tree);
+        return false;
+    }
+
+    size_t leafs = 0;
+    fwrite(&leafs, 1, sizeof(size_t), out);
+    leafs = write_tree_to_file(tree, out);
+    
+    huffman_free(tree);
+
+    fseek(out, 0, SEEK_SET);
+    fwrite(&leafs, 1, sizeof(size_t), out);
+    fseek(out, 0, SEEK_END);
+    fwrite(&leafs, 1, sizeof(size_t), out);
+
+    fwrite(&comp.byte_len, 1, sizeof(size_t), out);
+    fwrite(&comp.data_bits, 1, sizeof(size_t), out);
+    fwrite(comp.data, 1, comp.byte_len, out);
+
+    fclose(out);
+    return true;
+}
+
+bool decompress_file(const char * source, const char * dest)
+{
+    FILE * in = fopen(source, "rb");
+    if( !in ) {
+        return false;
+    }
+    
+    size_t leafs = 0;
+    fread(&leafs, 1, sizeof(leafs), in);
+    if( !leafs ) {
+        fclose(in);
+        return false;
+    }
+    huffman_node ** nodes = new huffman_node*[leafs];
+
+    for(size_t c = 0; c < leafs; ++c) {
+        nodes[c] = new huffman_node;
+        fread(nodes[c], 1, sizeof(huffman_node), in);
+    }
+
+    huffman_node * tree = new huffman_node;
+    build_tree(&tree, nodes, leafs);
+    delete[] nodes;
+    if( !tree ) {
+        fclose(in);
+        huffman_free(tree);
+        return false;
+    }
+    size_t checksum;
+    fread(&checksum, 1, sizeof(size_t), in);
+    if(checksum != leafs) {
+        fclose(in);
+        huffman_free(tree);
+        return false;
+    }
 
     huffman_encoded comp;
-    huffman_compress(root, string, orig_len, comp);
+    fread(&comp.byte_len, 1, sizeof(comp.byte_len), in);
+    fread(&comp.data_bits, 1, sizeof(comp.byte_len), in);
 
-    char * res;
-    huffman_decompress(root, comp, &res, len);
+    comp.data = new unsigned char[comp.byte_len];
+    fread(comp.data, 1, comp.byte_len, in);
+    fclose(in);
 
-    if( !strcmp(res, string) ) {
-        std::cout << "yaay: " << orig_len << " -> " << comp.byte_len;
-    } else {
-        std::cout << "shit";
+    char * res = NULL;
+    size_t new_len;
+    huffman_decompress(tree, comp, &res, new_len);
+    delete[] comp.data;
+
+    huffman_free(tree);
+
+    FILE * out = fopen(dest, "w");
+    if( !out ) {
+        delete[] res;    
+        return false;
     }
-    std::cin.get();
+
+    fwrite(res, 1, new_len, out);
+    fclose(out);
+    delete[] res;
+    return true;
+}
+
+int main(int argc, char * argv[])
+{
+    compress_file("C:\\Users\\poseidon4o\\Desktop\\transl", "C:\\Users\\poseidon4o\\Desktop\\transl.huff");
+    decompress_file("C:\\Users\\poseidon4o\\Desktop\\transl.huff", "C:\\Users\\poseidon4o\\Desktop\\transl_new");
     return 1;
 }
