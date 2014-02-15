@@ -1,4 +1,9 @@
 ﻿#define _CRT_SECURE_NO_WARNINGS
+
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+
 #include <string>
 #include <cstdlib>
 #include <algorithm>
@@ -213,6 +218,8 @@ void huffman_free(huffman_node * tree)
     
     huffman_free(tree->left);
     huffman_free(tree->right);
+
+    delete tree;
 }
 
 size_t write_tree_to_file(huffman_node * tree, FILE * file)
@@ -242,6 +249,7 @@ bool compress_file(const char * source, const char * dest)
     
     huffman_encoded comp;
     huffman_compress(tree, data, len, comp);
+    delete[] data;
 
     FILE * out = fopen(dest, "wb");
     if( !out ) {
@@ -264,6 +272,7 @@ bool compress_file(const char * source, const char * dest)
     fwrite(&comp.byte_len, 1, sizeof(size_t), out);
     fwrite(&comp.data_bits, 1, sizeof(size_t), out);
     fwrite(comp.data, 1, comp.byte_len, out);
+    delete[] comp.data;
 
     fclose(out);
     return true;
@@ -289,7 +298,7 @@ bool decompress_file(const char * source, const char * dest)
         fread(nodes[c], 1, sizeof(huffman_node), in);
     }
 
-    huffman_node * tree = new huffman_node;
+    huffman_node * tree = NULL;
     build_tree(&tree, nodes, leafs);
     delete[] nodes;
     if( !tree ) {
@@ -332,7 +341,8 @@ bool decompress_file(const char * source, const char * dest)
     return true;
 }
 
-void print_help(const char * name) {
+void print_help(const char * name)
+{
     printf("Usage:\n");
     printf("\t-c    --compress   <filepath>\n", name);
     printf("\t-d    --decompress <filepath>\n", name);
@@ -341,6 +351,7 @@ void print_help(const char * name) {
 
 int main(int argc, char * argv[])
 {
+    _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
     if (argc < 3 || (argc % 2 == 0)) {
         print_help(argv[0]);
         return 1;
@@ -385,21 +396,13 @@ int main(int argc, char * argv[])
     }
 
     bool res = false;
-    if (mode == 1) {
-        res = decompress_file(input_file, output_file);
-    } else {
-        res = compress_file(input_file, output_file);
-    }
+    if (mode == 1) res = decompress_file(input_file, output_file);
+    else res = compress_file(input_file, output_file);
 
-    if (!res) {
-        printf("Failed to %s %s to %s", mode == 1 ? "decompress" : "compress", input_file, output_file);
-    } else {
-        printf("%sed %s to %s", mode == 1 ? "Decompress" : "Compress", input_file, output_file);
-    }
+    if (!res) printf("Failed to %s %s to %s", mode == 1 ? "decompress" : "compress", input_file, output_file);
+    else printf("%sed %s to %s", mode == 1 ? "Decompress" : "Compress", input_file, output_file);
 
     delete[] input_file;
     delete[] output_file;
-    
-    
     return 1;
 }
