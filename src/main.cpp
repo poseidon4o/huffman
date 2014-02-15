@@ -2,8 +2,7 @@
 #include <string>
 #include <cstdlib>
 #include <algorithm>
-#include <iostream>
-
+#include <cmath>
 #define CHAR_BUF 256
 
 struct huffman_encoded {
@@ -62,7 +61,7 @@ public:
     inline void set(size_t sz) { if( --sz < bits) _data[sz/8] |= (0x1 << (sz % 8)); }
     inline void clear(size_t sz) { if( --sz < bits) _data[sz/8] &= ~(0x1 << (sz % 8)); }
     inline void change(size_t sz, b_type b) { if(b) set(sz); else clear(sz); }
-    inline b_type operator[](int idx) const { return idx <= bits ? _data[idx/8] >> (idx % 8) & 0x1 : 0; }
+    inline b_type operator[](size_t idx) const { return idx <= bits ? _data[idx/8] >> (idx % 8) & 0x1 : 0; }
 
     void clear() { memset(_data, 0, len); }
     void truncate(size_t ns) { bits = ns <= bits ? ns : bits; len = ns == bits ? bits / 8 + 1 : len; }
@@ -86,20 +85,6 @@ public:
         return *this;
     }
 };
-
-std::ostream & operator<<(std::ostream & os, const bitset & bs)
-{
-    bs.print(os);
-    return os;
-}
-
-std::ostream & operator<<(std::ostream & os, const huffman_encoded & enc)
-{
-    bitset bs(0);
-    bs.from_bytes(enc.data, enc.byte_len, enc.data_bits);
-    os << bs;
-    return os;
-}
 
 void huff_sort(huffman_node ** arr, size_t sz)
 {
@@ -146,10 +131,16 @@ void huffman_code(const huffman_node * tree, char data, bitset & bs, size_t leve
     }
 }
 
+size_t huffman_tree_height(const huffman_node * tree)
+{
+    return tree->is_leaf ? 0 : 1 + std::max(huffman_tree_height(tree->left), huffman_tree_height(tree->right));
+}
+
 void huffman_compress(const huffman_node * tree, const char * data, const size_t len, huffman_encoded & result)
 {
     using namespace std;
     bitset base(0);
+    size_t bs_max = huffman_tree_height(tree);
     for(size_t c = 0; c < len; ++c) {
         bitset tmp(CHAR_BUF);
         huffman_code(tree, data[c], tmp);
@@ -341,9 +332,74 @@ bool decompress_file(const char * source, const char * dest)
     return true;
 }
 
+void print_help(const char * name) {
+    printf("Usage:\n");
+    printf("\t-c    --compress   <filepath>\n", name);
+    printf("\t-d    --decompress <filepath>\n", name);
+    printf("\t-o    --output <filepath>\n", name);
+}
+
 int main(int argc, char * argv[])
 {
-    compress_file("C:\\Users\\poseidon4o\\Desktop\\transl", "C:\\Users\\poseidon4o\\Desktop\\transl.huff");
-    decompress_file("C:\\Users\\poseidon4o\\Desktop\\transl.huff", "C:\\Users\\poseidon4o\\Desktop\\transl_new");
+    if (argc < 3 || (argc % 2 == 0)) {
+        print_help(argv[0]);
+        return 1;
+    }
+    char * output_file = NULL,
+         * input_file  = NULL;
+    size_t mode = -1;
+
+    for(int c = 1; c < argc; c+=2) {
+        char * a_name = argv[c],
+             * a_val  = argv[c+1];
+        if (!strcmp(a_name, "-o") || !strcmp(a_name, "--output")) {
+            output_file = new char[strlen(a_val)+1];
+            strcpy(output_file, a_val);
+        } else if(!strcmp(a_name, "-d") || !strcmp(a_name, "--decompress")) {
+            input_file = new char[strlen(a_val)+1];
+            strcpy(input_file, a_val);
+            mode = 1;
+        } else if(!strcmp(a_name, "-c") || !strcmp(a_name, "--compress")) {
+            input_file = new char[strlen(a_val)+1];
+            strcpy(input_file, a_val);
+            mode = 2;
+        } else {
+            delete[] input_file;
+            delete[] output_file;
+            print_help(argv[0]);
+            return 1;
+        }
+    }
+
+    if (!input_file || mode == -1) {
+        delete[] input_file;
+        delete[] output_file;
+        print_help(argv[0]);
+        return 1;     
+    }
+
+    if (!output_file) {
+        output_file = new char[strlen(input_file) + 6];
+        strcpy(output_file, input_file);
+        strcat(output_file, ".huff");
+    }
+
+    bool res = false;
+    if (mode == 1) {
+        res = decompress_file(input_file, output_file);
+    } else {
+        res = compress_file(input_file, output_file);
+    }
+
+    if (!res) {
+        printf("Failed to %s %s to %s", mode == 1 ? "decompress" : "compress", input_file, output_file);
+    } else {
+        printf("%sed %s to %s", mode == 1 ? "Decompress" : "Compress", input_file, output_file);
+    }
+
+    delete[] input_file;
+    delete[] output_file;
+    
+    
     return 1;
 }
