@@ -165,11 +165,22 @@ void huffman_compress(const huffman_node * tree, const char * data, const size_t
     using namespace std;
     bitset base(0);
     size_t bs_max = huffman_tree_height(tree);
+
+    bitset * hash_cache[CHAR_BUF] = { NULL, };
+
     for(size_t c = 0; c < len; ++c) {
-        bitset tmp(CHAR_BUF);
-        huffman_code(tree, data[c], tmp);
-        base += tmp;
+        if ( !hash_cache[data[c]] ) {
+            hash_cache[data[c]] = new bitset(CHAR_BUF);
+            huffman_code(tree, data[c], *hash_cache[data[c]]);
+        }
+        
+        base += *hash_cache[data[c]];
     }
+
+    for(size_t c = 0; c < CHAR_BUF; ++c) {
+        delete[] hash_cache[c];
+    }
+
     result.data = new unsigned char[base.length()];
     memcpy(result.data, base.data(), base.length());
     result.byte_len = base.length();
@@ -395,7 +406,7 @@ void generate_text(char * text, size_t len)
     
     printf("\nGenerating %u bytes of random data...", len);
     time_action("\nStarting...", "\tGenerated in %u ms", [&]() -> void {
-        for(int c = 0; c < len; ++c) text[c] = generators[gen_dice(gen)]();
+        for(size_t c = 0; c < len; ++c) text[c] = generators[gen_dice(gen)]();
     });
 }
 
