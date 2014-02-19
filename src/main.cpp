@@ -8,7 +8,20 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cmath>
+
+#include <functional>
+#include <chrono>
+#include <limits>
+#include <random>
+#include <sstream>
+
 #define CHAR_BUF 256
+#define CHUNK    8192
+
+#define _CT_TEMPL_S_V(string, var) string #var
+#define _CT_TEMPL_V_S(string, var) string #var
+#define CT_TEMPLATE_3(pre, v_mid, post) _CT_TEMPL_S_V(pre, v_mid) post
+#define CT_TEMPLATE_5(pre, v_first, mid, v_second, post) CT_TEMPLATE_3(pre v_first mid) _CT_TEMPL_V_S(v_second post)
 
 struct huffman_encoded {
     unsigned char * data;
@@ -93,8 +106,14 @@ public:
 
 void huff_sort(huffman_node ** arr, size_t sz)
 {
-    qsort(arr, sz, sizeof(huffman_node *), [](const void * l, const void *r) -> int {
-        return (*(huffman_node**)l)->get_weight() < (*(huffman_node**)r)->get_weight() ? -1 : (*(huffman_node**)l)->get_weight() == (*(huffman_node**)r)->get_weight() ? 0 : 1;
+    qsort(arr, sz, sizeof(huffman_node *), [](const void * l, const void * r) -> int {
+        huffman_node * left = (*(huffman_node**)l),
+                     * right = (*(huffman_node**)r);
+        if( left->get_weight() == right->get_weight() ) {
+            return !!(left->val - right->val);
+        } else {
+            return !!(left->get_weight() - right->get_weight());
+        }
     });
 }
 
@@ -211,25 +230,17 @@ huffman_node * huffman_tree_from_text(const char * data, size_t len)
 
 void huffman_free(huffman_node * tree)
 {
-    if( tree->is_leaf ) {
-        delete tree;
-        return;
+    if( !tree->is_leaf ) {
+        huffman_free(tree->left);
+        huffman_free(tree->right);
     }
-    
-    huffman_free(tree->left);
-    huffman_free(tree->right);
-
     delete tree;
 }
 
 size_t write_tree_to_file(huffman_node * tree, FILE * file)
 {
-    if( tree->is_leaf ) {
-        fwrite(tree, 1, sizeof(huffman_node), file);
-        return 1;
-    } else {
-        return write_tree_to_file(tree->left, file) +  write_tree_to_file(tree->right, file);
-    }
+    if( tree->is_leaf ) return sizeof(huffman_node) == fwrite(tree, 1, sizeof(huffman_node), file);
+    else return write_tree_to_file(tree->left, file) +  write_tree_to_file(tree->right, file);
 }
 
 bool compress_file(const char * source, const char * dest)
@@ -344,15 +355,104 @@ bool decompress_file(const char * source, const char * dest)
 void print_help(const char * name)
 {
     printf("Usage:\n");
-    printf("\t-c    --compress   <filepath>\n", name);
-    printf("\t-d    --decompress <filepath>\n", name);
-    printf("\t-o    --output <filepath>\n", name);
+    printf("\t%s\t-c\t--compress   <filepath>\n", name);
+    printf("\t%s\t-d\t--decompress <filepath>\n", name);
+    printf("\t%s\t-o\t--output <filepath>\n", name);
+    printf("\t%s\t-t\t--tests\tRuns a test for valid compression/decompression", name);
+}
+
+void time_action(const char * before, const char * after, std::function<void()> job) 
+{
+    using namespace std;
+    
+    printf(before);
+    chrono::steady_clock::time_point start = chrono::steady_clock::now();
+    job();
+    chrono::milliseconds duration = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - start);
+    printf(after, duration.count());
+}
+
+void generate_text(char * text, size_t len)
+{
+    using std::mt19937;
+    using std::uniform_int_distribution;
+    mt19937 gen;
+    
+    const char non_alpha[] = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ',', '.', '!', '?'};
+
+    uniform_int_distribution<> upper('A', 'Z'), lower('a', 'z'), simbol_dice(0, sizeof(non_alpha)-1);
+    std::function<int()> generators[] = {
+        [&]() -> int { return upper(gen); },
+        [&]() -> int { return lower(gen); },
+        [&]() -> int { return upper(gen); },
+        [&]() -> int { return lower(gen); },
+        [&]() -> int { return upper(gen); },
+        [&]() -> int { return lower(gen); },
+        [&]() -> int { return non_alpha[simbol_dice(gen)]; }
+    };
+    
+    uniform_int_distribution<> gen_dice(0, sizeof(generators) / sizeof(generators[0]) - 1);
+    
+    printf("\nGenerating %u bytes of random data...", len);
+    time_action("\nStarting...", "\tGenerated in %u ms", [&]() -> void {
+        for(int c = 0; c < len; ++c) text[c] = generators[gen_dice(gen)]();
+    });
+}
+
+void run_tests(size_t sz)
+{
+    const int size = CHUNK * sz;
+    char * buff_orig_str = new char[size];
+    generate_text(buff_orig_str, size);    
+
+    huffman_node * tree;
+    time_action("\n\nGenerating huffman tree from chunk...", "\tTree generated in %u ms", [&]() -> void {
+        tree = huffman_tree_from_text(buff_orig_str, size);
+    });
+    
+    if ( !tree ) {
+        printf("\n\nFailed generating tree");
+        delete[] buff_orig_str;
+        return;
+    }
+
+    huffman_encoded comp;
+    time_action("\n\nCompressing...", "\tFinished in %u ms", [&]() -> void {
+        huffman_compress(tree, buff_orig_str, size, comp);
+    });
+    if( !comp.data ) {
+        printf("\n\nFailed compressing data!");
+        delete[] buff_orig_str;
+        return;
+    }
+
+    printf("\n\nData compressed, with ration: %f", comp.byte_len / (double)size);
+
+    size_t len;
+    char * uncompressed;
+
+    time_action("\n\nDecompressing data...", "\tData decompressed in %u ms", [&]() -> void {
+        huffman_decompress(tree, comp, &uncompressed, len);
+    });
+    if ( !uncompressed ) {
+        printf("\nFailed decompressing data!");
+        delete[] buff_orig_str;
+        return;
+    }
+
+    if( len != size || strncmp(buff_orig_str, uncompressed, size) ) {
+        printf("\n\nDecompressed data does not match the compressed!");
+    } else {
+        printf("\n\nSuccesfull compression and decompression");
+    }
+    delete[] buff_orig_str;
+    delete[] uncompressed;
 }
 
 int main(int argc, char * argv[])
 {
     _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
-    if (argc < 3 || (argc % 2 == 0)) {
+    if (argc < 2 || (~argc & 0x1)) {
         print_help(argv[0]);
         return 1;
     }
@@ -374,6 +474,13 @@ int main(int argc, char * argv[])
             input_file = new char[strlen(a_val)+1];
             strcpy(input_file, a_val);
             mode = 2;
+        } else if(!strcmp(a_name, "-t") || !strcmp(a_name, "--tests")) {
+            std::stringstream conv;
+            conv << a_val;
+            size_t sz;
+            conv >> sz;
+            run_tests(sz);
+            return 0;
         } else {
             delete[] input_file;
             delete[] output_file;
