@@ -51,18 +51,25 @@ class bitset {
     typedef unsigned char b_type;
     b_type * _data;
     size_t len, bits;
+    size_t offset;
 public:
-    bitset(size_t sz, b_type val = 0) {
+    const enum mode_t { BS_DEFAULT, BS_STREAM } mode;
+
+    bitset(size_t sz, mode_t m = BS_DEFAULT): mode(m) {
         len = (bits = sz) / 8 + 1;
         _data = len ? new b_type[len] : NULL;
-        if( val && len ) {
-            for(size_t c = 0; c < bits; ++c) set(c);
-        } else {
-            memset(_data, 0, len);
-        }
+        memset(_data, 0, len);
+
+        offset = 0;
     }
     ~bitset() { delete[] _data; }
-    bitset(const bitset & bs): _data(NULL), len(0), bits(0) {
+    void reset() { delete[] _data; _data = NULL; len = bits = 0; }
+    void cut_front(size_t bytes) {
+        if ( bytes > len ) return;
+        memcpy(_data, _data + bytes, len - bytes);
+        memset(_data + bytes, 0, len - bytes);
+    }
+    bitset(const bitset & bs): _data(NULL), len(0), bits(0), mode(bs.mode) {
         if( bs.bits ) {
             _data = new b_type[len = bs.len];
             memcpy(_data, bs._data, bs.len);
@@ -76,8 +83,8 @@ public:
         memcpy(_data, data, len);
         bits = _bits;
     }
-    inline void set(size_t sz) { if( --sz < bits) _data[sz/8] |= (0x1 << (sz % 8)); }
-    inline void clear(size_t sz) { if( --sz < bits) _data[sz/8] &= ~(0x1 << (sz % 8)); }
+    inline void set(size_t sz) { if( mode == BS_STREAM ) offset = std::max(offset, sz);  if( --sz < bits) _data[sz/8] |= (0x1 << (sz % 8)); }
+    inline void clear(size_t sz) { if( mode == BS_STREAM ) offset = std::max(offset, sz);  if( --sz < bits) _data[sz/8] &= ~(0x1 << (sz % 8)); }
     inline void change(size_t sz, b_type b) { if(b) set(sz); else clear(sz); }
     inline b_type operator[](size_t idx) const { return idx <= bits ? _data[idx/8] >> (idx % 8) & 0x1 : 0; }
 
@@ -86,7 +93,18 @@ public:
     const b_type * data() { return _data; }
     size_t length() const { return len; }
     size_t bit_count() const { return bits; }
+    void append(const bitset & bs) {
+        if( mode != BS_STREAM ) return;
+        if( bits - offset < bs.bits ) {
+
+        } else {
+            for(size_t c = 0; c < bs.bits; ++c) {
+                change(offset, bs[c]);
+            }
+        }
+    }
     bitset & operator+=(const bitset & bs) {
+        if( mode != BS_DEFAULT ) return *this;
         bitset tmp(bits + bs.bits);
         
         memcpy(tmp._data, _data, len);
@@ -178,13 +196,37 @@ void huffman_compress(const huffman_node * tree, const char * data, const size_t
     }
 
     for(size_t c = 0; c < CHAR_BUF; ++c) {
-        delete[] hash_cache[c];
+        delete hash_cache[c];
     }
 
     result.data = new unsigned char[base.length()];
     memcpy(result.data, base.data(), base.length());
     result.byte_len = base.length();
     result.data_bits = base.bit_count();
+}
+
+void huffman_compress_stream(const huffman_node * tree, FILE * input, FILE * output)
+{
+    size_t total_bytes = 0, out_off = ftell(output);
+    fwrite(&total_bytes, 1, sizeof(size_t), output);
+
+    size_t tree_depth = huffman_tree_height(tree);
+    bitset base(CHUNK * 8 + tree_depth * 2);
+
+    bitset * hash_cache[CHAR_BUF] = { NULL, };
+
+    char buff[CHUNK];
+    size_t last_read = 0;
+    while( last_read = fread(buff, 1, CHUNK, input) ) {
+        for(size_t c = 0; c < last_read; ++c) {
+            if ( !hash_cache[buff[c]] ) {
+                hash_cache[buff[c]] = new bitset(CHAR_BUF);
+                huffman_code(tree, buff[c], *hash_cache[buff[c]]);
+            }
+            base += *hash_cache[buff[c]];
+            if( base.
+        }
+    }
 }
 
 void huffman_decompress(const huffman_node * tree, const huffman_encoded & data, char ** uncompressed, size_t & uncompressed_len)

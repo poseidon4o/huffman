@@ -13,6 +13,11 @@
   <ItemGroup>
     <ClCompile Include="..\src\main.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="bitset.h" />
+    <ClInclude Include="bitstream.h" />
+    <ClInclude Include="huffman.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{1CEDD1C0-C9A1-42D1-BB92-D43986E4ABB7}</ProjectGuid>
     <RootNamespace>huffman</RootNamespace>
